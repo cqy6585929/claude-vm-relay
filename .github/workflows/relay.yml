@@ -1,0 +1,61 @@
+name: Claude VM bundle relay
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  VM_SHA: 882518393ed4ce89020bd48d99d5daf114999773
+  CCD_BASE: https://downloads.claude.ai/claude-code-releases/rc/16cbb4ddeeb473f57fd8d5b713764903d7928e66/2.1.284/linux-x64
+
+jobs:
+  relay:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - name: Download from Anthropic CDN
+        run: |
+          set -euo pipefail
+          mkdir -p dl
+          base="https://downloads.claude.ai/vms/linux/x64/${VM_SHA}"
+          curl -fSL --retry 5 --retry-delay 5 -o dl/rootfs.vhdx.zst      "$base/rootfs.vhdx.zst"
+          curl -fSL --retry 5 --retry-delay 5 -o dl/vmlinuz.zst          "$base/vmlinuz.zst"
+          curl -fSL --retry 5 --retry-delay 5 -o dl/initrd.zst           "$base/initrd.zst"
+          curl -fSL --retry 5 --retry-delay 5 -o dl/claude-linux-x64.zst "${CCD_BASE}/claude.zst"
+          ls -l dl
+
+      - name: Verify checksums
+        run: |
+          set -euo pipefail
+          cd dl
+          echo "5696e58a854c2fb3e14c4d78038c398671cc89cf1fcf60316c5c421825bbf5c6  rootfs.vhdx.zst"      | sha256sum -c -
+          echo "3118616ef6ba3866652284b8b4c224a96876c56091724c35c93caf1ccb9b50a9  vmlinuz.zst"          | sha256sum -c -
+          echo "c12df253f5ddac9f7f7cdf317c7257586d262eabd9336c1ce001301399fbe56a  initrd.zst"           | sha256sum -c -
+          echo "20b1b16df81e34abc68bef87c5a8433106f0cf4e84b2dd507e37bb7978cbd6f2  claude-linux-x64.zst" | sha256sum -c -
+
+      - name: Split rootfs into chunks
+        run: |
+          set -euo pipefail
+          cd dl
+          split -b 94371840 -d -a 2 rootfs.vhdx.zst rootfs.part-
+          ls -l rootfs.part-* | head -20
+          : > SHA256SUMS.txt
+          for f in rootfs.part-* vmlinuz.zst initrd.zst claude-linux-x64.zst; do
+            sha256sum "$f" >> SHA256SUMS.txt
+          done
+          cp SHA256SUMS.txt ../SHA256SUMS.txt
+          wc -l ../SHA256SUMS.txt
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          tag="claude-vm-8825183"
+          gh release create "$tag" --title "Claude Cowork VM bundle 8825183" \
+            --notes "Official Claude Cowork VM components for win32-x64, relayed unmodified from downloads.claude.ai. Verify with SHA256SUMS.txt." \
+            || echo "release may already exist"
+          gh release upload "$tag" dl/rootfs.part-* dl/vmlinuz.zst dl/initrd.zst dl/claude-linux-x64.zst SHA256SUMS.txt --clobber
+          gh release view "$tag" --json assets --jq '.assets[] | "\(.name)  \(.size)"'
