@@ -54,8 +54,11 @@ jobs:
         run: |
           set -euo pipefail
           tag="claude-vm-8825183"
-          gh release create "$tag" --title "Claude Cowork VM bundle 8825183" \
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" \
+            --title "Claude Cowork VM bundle 8825183" \
             --notes "Official Claude Cowork VM components for win32-x64, relayed unmodified from downloads.claude.ai. Verify with SHA256SUMS.txt." \
-            || echo "release may already exist"
-          gh release upload "$tag" dl/rootfs.part-* dl/vmlinuz.zst dl/initrd.zst dl/claude-linux-x64.zst SHA256SUMS.txt --clobber
-          gh release view "$tag" --json assets --jq '.assets[] | "\(.name)  \(.size)"'
+            || echo "release already exists, uploading to it"
+          gh release upload "$tag" --repo "$GITHUB_REPOSITORY" --clobber \
+            dl/rootfs.part-* dl/vmlinuz.zst dl/initrd.zst dl/claude-linux-x64.zst SHA256SUMS.txt
+          gh release view "$tag" --repo "$GITHUB_REPOSITORY" --json assets \
+            --jq '.assets[] | "\(.name)  \(.size)"'
